@@ -77,8 +77,4 @@ openstack object delete <container> <object>
 Vous pouvez aussi supprimer tous les objects avec le même chemin :
 ```
 swift delete <container> <chemin>/*
-
-
-
-
-
+```
