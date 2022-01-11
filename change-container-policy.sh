@@ -30,14 +30,15 @@ if test $? -ne 0; then
 fi
 
 # Récupération des ACL de lecture et d'éciture
+ARGS=""
 READACL=$(swift stat $CONTAINER | grep 'Read ACL' | awk '{print $3}')
-if [ -n $READACL ]; then
-    ARGS=$(echo $ARGS --header "X-Container-Read: $READACL")
+if [ "$READACL" != "" ]; then
+    ARGS=$(echo "$ARGS--header \"X-Container-Read: $READACL\"")
 fi
 
 WRITEACL=$(swift stat $CONTAINER | grep 'Write ACL' | awk '{print $3}')
-if [ -n $WRITEACL ]; then
-    ARGS=$(echo $ARGS --header "X-Container-Read: $WRITEACL")
+if [ "$WRITEACL" != "" ]; then
+    ARGS=$(echo "$ARGS--header \"X-Container-Write: $WRITEACL\" ")
 fi
 
 # Création d'un container temporaire avec un nom random
@@ -72,7 +73,7 @@ else
 fi
 
 # Création du container final avec la bonne policy
-swift post $CONTAINER -H "X-Storage-Policy: $POLICY" $ARGS > /dev/null 2>&1
+swift post $CONTAINER -H "X-Storage-Policy: $POLICY" > /dev/null 2>&1
 if test $? -eq 0; then
     echo "[$(date +%Y-%m-%d_%H:%M:%S)]   ChangeContainerPolicy   ✅   New container $CONTAINER with policy $POLICY successfully created."
 else
@@ -91,11 +92,15 @@ for OBJECT in $OBJECTSLISTTEMP; do
         fi
 done
 
-# Si pas d'erreurs dans la copie, suppression du container final
+# Si pas d'erreurs dans la copie, suppression du container temporaire
 if [ "$ERRORS" -eq "0" ]; then
     swift delete $CONTAINERTEMP > /dev/null 2>&1
     if test $? -eq 0; then
         echo "[$(date +%Y-%m-%d_%H:%M:%S)]   ChangeContainerPolicy   ✅   Temp container $CONTAINERTEMP successfully deleted."
+        if [ "$ARGS" != "" ]; then
+            echo "swift post $CONTAINER.$ARGS."
+            swift post $CONTAINER $ARGS
+        fi
         echo "[$(date +%Y-%m-%d_%H:%M:%S)]   ChangeContainerPolicy   ✅   $CONTAINER policy successfully changed to $POLICY !"
     else
         echo "[$(date +%Y-%m-%d_%H:%M:%S)]   ChangeContainerPolicy   ❌   ERROR : A problem was encountered during the delete of temp container $CONTAINERTEMP."
