@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
 import swiftclient.client
 from swiftclient.exceptions import ClientException
 from swiftclient.service import SwiftService, SwiftCopyObject, SwiftError
@@ -8,7 +9,12 @@ import os
 from sys import argv
 import json
 import random
+import logging
 
+logging.basicConfig(level=logging.ERROR)
+logging.getLogger("requests").setLevel(logging.CRITICAL)
+logging.getLogger("swiftclient").setLevel(logging.CRITICAL)
+logger = logging.getLogger(__name__)
 
 auth_version = '3.0',
 os_username = os.getenv('OS_USERNAME'),
@@ -25,46 +31,42 @@ swiftconnect = swiftclient.Connection(
 )
 
 
-def list_policy():
-    with SwiftService() as swift:
-        try:
-            capabilities_result = swift.capabilities()
-            policy_list = list()
-            policy_name_list = ""
-            for ipolicy in capabilities_result['capabilities']['swift']['policies']:
-                policy_list.append(ipolicy['name'])
-            for name in policy_list:
-                policy_name_list = policy_name_list +" "+ name
-            return (policy_name_list)
-        except ClientException as e:
-            print ("pouprout")
+def list_policy(swift):
+    try:
+        capabilities_result = swift.capabilities()
+        policy_list = list()
+        policy_name_list = ""
+        for ipolicy in capabilities_result['capabilities']['swift']['policies']:
+            policy_list.append(ipolicy['name'])
+        for name in policy_list:
+            policy_name_list = policy_name_list +" "+ name
+        return (policy_name_list)
+    except ClientException as e:
+        logger.error(e.value)
 
-def check_policy_exist(policy):
-    policy_list = list_policy()
+def check_policy_exist(swift, policy):
+    policy_list = list_policy(swift)
     if policy not in policy_list:
-        print ("The policy "+str(policy)+" does not exist.")
+        logger.error(f"The policy {policy} does not exist.")
         exit()
 
-def copy_container(container_source, container_destination):
-    with SwiftService() as swift:
+def copy_container(swift, container_source, container_destination):
         nbobject = 0
         try:
             list_parts_gen = swift.list(container=container_source)
             for page in list_parts_gen:
                 if page["success"]:
                     for item in page["listing"]:
-                        i_size = int(item["bytes"])
                         i_name = item["name"]
                         nbobject+=1
-                        copy_object(container_source, i_name, container_destination, nbobject)
+                        copy_object(swift, container_source, i_name, container_destination, nbobject)
                 else:
                     raise page["error"]
 
         except SwiftError as e:
-            print("prout")
+            logger.error(e.value)
 
-def stat_container(container):
-    with SwiftService() as swift:
+def stat_container(swift, container):
         try:
             list_stat=swift.stat(container=container)
             json_str = json.dumps(list_stat)
@@ -76,75 +78,82 @@ def stat_container(container):
             size = resp['items'][3][1]
             return policy, nbobjects, rACL, wACL, size
         except SwiftError as e:
-            print(str(container)+" doesn't exist !")
-            exit()
+            print(f"{container} doesn't exist !")
+            logger.error(e.value)
 
-def create_container(container_name, vsource_stats):
-    with SwiftService() as swift:
+def create_container(swift, container_name, vsource_stats):
         hpolicy = "X-Storage-Policy: "+str(policy)
         try:
             swift.post(container_name, options={'header': [hpolicy],'read_acl': vsource_stats[2], 'write_acl': vsource_stats[3]})
-            print ("Container "+str(container_name)+" created with policy : "+str(policy))
+            print (f"Container {container_name} created with policy : {policy}")
         except SwiftError as e:
-            print("prout")
+            logger.error(e.value)
 
-def copy_object(source, object, destination, nbobject):
+def copy_object(swift, source, object, destination, nbobject):
     destination = "/"+str(destination)
-    with SwiftService() as swift:
-        try:
-            obj = SwiftCopyObject(object, {"destination": destination})
-            for i in swift.copy(source, [obj]):
-                if i["success"]:
-                    if i["action"] == "copy_object":
-                        print("   Copy to "+str(destination)+" in progress (",nbobject,"/ "+str(vsource_stats[1])+" )")
-                else:
-                    print("prout1")
+    try:
+        obj = SwiftCopyObject(object, {"destination": destination})
+        for i in swift.copy(source, [obj]):
+            if i["success"]:
+                if i["action"] == "copy_object":
+                    print(f"   Copy to {destination} in progress ({nbobject}/{vsource_stats[1]})")
+            else:
+                exit()
 
-        except SwiftError as e:
-            print("prout2")
+    except SwiftError as e:
+        logger.error(e.value)
 
-def delete_source(source, destination):
-    source_stats = stat_container(source)
-    destination_stats = stat_container(destination)
+def delete_source(swift, source, destination):
+    source_stats = stat_container(swift, source)
+    destination_stats = stat_container(swift, destination)
     if source_stats[4] == destination_stats[4]:
-        with SwiftService() as swift:
-            del_iter = swift.delete(container=source)
-            for del_res in del_iter:
-                if del_res['success'] and not del_res['action'] == 'bulk_delete':
-                    rd = del_res.get('response_dict')
-                    if rd is not None:
-                        t = dict(rd.get('headers', {}))
-        print ("Container "+str(source)+" deleted.")
+        del_iter = swift.delete(container=source)
+        for del_res in del_iter:
+            if del_res['success'] and not del_res['action'] == 'bulk_delete':
+                rd = del_res.get('response_dict')
+                if rd is not None:
+                    t = dict(rd.get('headers', {}))
+        print (f"Container {source} deleted.")
 
     else:
-        print ("proutouuu")
+        print (f"There was an error while deleting {source}.")
         exit()
 
-
-if len(argv) > 1:
-    if argv[1] == "--help":
-        print("prouthelp")
-        exit()
-    elif argv[1] == "--list":
-        print(list_policy())
-        exit()
-    else:
-        container = argv[1]
-        if len(argv) > 2:
-            policy = argv[2]
-        else:
-            print ("Provide policy please. You can list policies with '--list'")
+if __name__ == '__main__':
+    if len(argv) > 1:
+        if argv[1] == "--help":
+            print("This script allows to change the policy of a container.")
+            print("You have to provide the name of the container and the desired policy :")
+            print("   'python3 change-container-policy.py <container> <policy>'")
+            print("You can list the available policies with :")
+            print("   'python3 change-container-policy.py --list'")
             exit()
-        nrandom = random.randint(1000,22000)
-        container_temp = str(container)+"-temp-"+str(nrandom)
-else:
-    print("prouthelp")
-    exit()
+        elif argv[1] == "--list":
+            with SwiftService() as swift:
+                print(list_policy(swift))
+            exit()
+        else:
+            container = argv[1]
+            if len(argv) > 2:
+                policy = argv[2]
+            else:
+                print ("Provide policy please. You can list policies with '--list'")
+                exit()
+            nrandom = random.randint(1000,22000)
+            container_temp = str(container)+"-temp-"+str(nrandom)
+    else:
+        print("This script allows to change the policy of a container.")
+        print("You have to provide the name of the container and the desired policy :")
+        print("   'python3 change-container-policy.py <container> <policy>'")
+        print("You can list the available policies with :")
+        print("   'python3 change-container-policy.py --list'")
+        exit()
 
-vsource_stats = stat_container(container)
-check_policy_exist(policy)
-copy_container(container, container_temp)
-delete_source(container, container_temp)
-create_container(container, vsource_stats)
-copy_container(container_temp, container)
-delete_source(container_temp, container)
+    with SwiftService() as swift:
+        vsource_stats = stat_container(swift, container)
+        check_policy_exist(swift, policy)
+        copy_container(swift, container, container_temp)
+        delete_source(swift, container, container_temp)
+        create_container(swift, container, vsource_stats)
+        copy_container(swift, container_temp, container)
+        delete_source(swift, container_temp, container)
