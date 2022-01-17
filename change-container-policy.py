@@ -16,6 +16,7 @@ logging.getLogger("requests").setLevel(logging.CRITICAL)
 logging.getLogger("swiftclient").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
+# Recovering login information from environment variables
 auth_version = '3.0',
 os_username = os.getenv('OS_USERNAME'),
 os_password = os.getenv('OS_PASSWORD'),
@@ -23,14 +24,14 @@ os_project_name = os.getenv('OS_PROJECT_NAME'),
 os_project_domain_name = os.getenv('OS_PROJECT_DOMAIN_NAME'),
 os_auth_url = os.getenv('OS_AUTH_URL')
 
-
+# Connection to Swift API
 swiftconnect = swiftclient.Connection(
     user=os_username,
     key=os_password,
     authurl=os_auth_url
 )
 
-
+# List all available policies 
 def list_policy(swift):
     try:
         capabilities_result = swift.capabilities()
@@ -44,12 +45,14 @@ def list_policy(swift):
     except ClientException as e:
         logger.error(e.value)
 
+# Checks if the given policy exists
 def check_policy_exist(swift, policy):
     policy_list = list_policy(swift)
     if policy not in policy_list:
         logger.error(f"The policy {policy} does not exist.")
         exit()
 
+# Copy all objects from one container to another
 def copy_container(swift, container_source, container_destination):
         nbobject = 0
         try:
@@ -66,6 +69,7 @@ def copy_container(swift, container_source, container_destination):
         except SwiftError as e:
             logger.error(e.value)
 
+# Retrieves information from the container
 def stat_container(swift, container):
         try:
             list_stat=swift.stat(container=container)
@@ -81,6 +85,7 @@ def stat_container(swift, container):
             print(f"{container} doesn't exist !")
             logger.error(e.value)
 
+# Create a container with the requested policy and the sent parameters
 def create_container(swift, container_name, vsource_stats):
         hpolicy = "X-Storage-Policy: "+str(policy)
         try:
@@ -89,6 +94,7 @@ def create_container(swift, container_name, vsource_stats):
         except SwiftError as e:
             logger.error(e.value)
 
+# Copy an object from the source container to the destination
 def copy_object(swift, source, object, destination, nbobject):
     destination = "/"+str(destination)
     try:
@@ -103,6 +109,7 @@ def copy_object(swift, source, object, destination, nbobject):
     except SwiftError as e:
         logger.error(e.value)
 
+# Checks that the source and destination are the same size and deletes the source
 def delete_source(swift, source, destination):
     source_stats = stat_container(swift, source)
     destination_stats = stat_container(swift, destination)
@@ -119,6 +126,7 @@ def delete_source(swift, source, destination):
         print (f"There was an error while deleting {source}.")
         exit()
 
+# Main application
 if __name__ == '__main__':
     if len(argv) > 1:
         if argv[1] == "--help":
